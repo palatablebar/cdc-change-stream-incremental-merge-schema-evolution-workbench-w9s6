@@ -5,7 +5,8 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import DateTime, String
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from src.models.types import GUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.config.settings import settings
@@ -16,8 +17,8 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
     __table_args__ = {"schema": settings.cdc_schema}
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
     actor_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
     action: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
     entity_type: Mapped[str] = mapped_column(String(60), nullable=False, index=True)

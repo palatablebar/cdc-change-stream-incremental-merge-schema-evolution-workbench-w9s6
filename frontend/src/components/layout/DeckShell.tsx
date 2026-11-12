@@ -6,6 +6,7 @@ import { ROLE_LABEL } from '../../constants/cdc';
 
 const NAV = [
   { to: '/streams', label: '变更流看板', key: 'streams' },
+  { to: '/catchup', label: '增量追赶', key: 'catchup' },
   { to: '/events', label: '事件浏览', key: 'events' },
   { to: '/runs', label: '归并运行', key: 'runs' },
   { to: '/rejected', label: '拒绝与重放', key: 'rejected' },
@@ -23,6 +24,7 @@ export const DeckShell = ({ children }: { children: ReactNode }) => {
   const hint = (key: string): string => {
     if (!board) return '';
     if (key === 'streams') return String(board.totals.stream_count);
+    if (key === 'catchup') return board.totals.active_runs > 0 ? `${board.totals.active_runs}▶` : '·';
     if (key === 'events') return String(board.totals.event_count);
     if (key === 'runs') return board.totals.active_runs > 0 ? `${board.totals.active_runs}▶` : '·';
     if (key === 'rejected') return String(board.totals.pending_rejected);

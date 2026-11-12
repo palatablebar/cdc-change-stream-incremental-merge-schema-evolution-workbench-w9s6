@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { DeckShell } from '../components/layout/DeckShell';
+import { CatchupPage } from '../pages/Catchup';
 import { EventsPage } from '../pages/Events';
 import { LoginPage } from '../pages/Login';
 import { RejectedPage } from '../pages/Rejected';
@@ -15,6 +16,7 @@ export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
   { path: '/', loader: requireAuth, element: <Navigate to="/streams" replace /> },
   { path: '/streams', loader: requireAuth, element: shell(<StreamsPage />) },
+  { path: '/catchup', loader: requireAuth, element: shell(<CatchupPage />) },
   { path: '/events', loader: requireAuth, element: shell(<EventsPage />) },
   { path: '/runs', loader: requireAuth, element: shell(<RunsPage />) },
   { path: '/runs/:id', loader: requireAuth, element: shell(<RunDetailPage />) },

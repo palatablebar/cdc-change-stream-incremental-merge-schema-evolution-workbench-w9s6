@@ -5,7 +5,8 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import BigInteger, DateTime, Integer, String
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from src.models.types import GUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.config.settings import settings
@@ -18,7 +19,7 @@ class ChangeStream(Base, TimestampMixin):
     __tablename__ = "change_streams"
     __table_args__ = {"schema": settings.cdc_schema}
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=new_uuid)
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=new_uuid)
     name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False, index=True)
     source_db: Mapped[str] = mapped_column(String(120), nullable=False)
     source_table: Mapped[str] = mapped_column(String(160), nullable=False)

@@ -15,6 +15,8 @@ PERMISSIONS: dict[str, tuple[str, ...]] = {
     "events:read": ALL_ROLES,
     "runs:read": ALL_ROLES,
     "runs:trigger": (ROLE_ADMIN, ROLE_ENGINEER),
+    "catchup:read": ALL_ROLES,
+    "catchup:trigger": (ROLE_ADMIN, ROLE_ENGINEER),
     "rejected:read": ALL_ROLES,
     "rejected:replay": (ROLE_ADMIN, ROLE_ENGINEER),
     "schema:read": ALL_ROLES,

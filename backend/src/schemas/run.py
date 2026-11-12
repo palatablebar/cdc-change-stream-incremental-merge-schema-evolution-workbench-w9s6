@@ -20,6 +20,7 @@ def serialize_run(run: Any, stream_name: str | None = None, idempotent: bool | N
         "id": str(run.id),
         "stream_id": str(run.stream_id),
         "stream_name": stream_name,
+        "catchup_session_id": str(run.catchup_session_id) if run.catchup_session_id else None,
         "window_start_lsn": run.window_start_lsn,
         "window_end_lsn": run.window_end_lsn,
         "window_display": f"{format_lsn(run.window_start_lsn)} - {format_lsn(run.window_end_lsn)}",

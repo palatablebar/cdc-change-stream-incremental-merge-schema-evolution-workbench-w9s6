@@ -22,6 +22,7 @@
 ## 2. 主要功能
 
 - **事件流看板**：流列表、水位线、积压量、按 op 的事件分布、最近运行。
+- **连续增量追赶（值班核心）**：按可控批量逐批追到最新位点，**每批归并成功才推进安全位点（水位线）**；遇 LSN 空洞停在空洞之前，补洞后自动继续；批次失败不推进，续跑从最后确认位置重新规划，重复执行不新增在飞批次、不跳过未处理事件。页面实时展示当前批次、剩余积压、安全位点与最近一次恢复结果。
 - **事件浏览**：按 op/拒绝标记筛选，按 LSN 序或到达序排列，单事件 before/after 字段级 diff（后端计算）。
 - **归并运行**：选 LSN 窗口 → 后端建 run → Celery worker 执行合并 → 结果落库 → 前端轮询结果。
 - **拒绝与重放**：4 类拒绝原因（`schema_mismatch / pk_missing / parse_error / type_conflict`），按原因做真实载荷修复后重放。
@@ -44,6 +45,17 @@
 - 输出：`inserted/updated/deleted/rebuilt/upserted/duplicate/rejected/conflicted` 计数、最终行、冲突明细、重复明细、金额校验、`digest`。
 - 失败态：主键缺失事件进拒绝队列；未知 op 进拒绝队列；窗口为空/超上限在发起阶段直接 409/413。
 - 可复现：事件集合固定 + 稳定排序 → 同一窗口重复运行得到相同 `digest`，结果页标记「幂等」。
+
+### 算法 1b：连续增量追赶（可控批量 + 安全位点 + 空洞停车）
+
+`backend/src/services/catchup_planner.py`（纯函数规划）+ `backend/src/services/catchup_service.py`（编排），批次仍复用算法 1 的 `MergeRun`/Celery 链路。
+
+- **可控批量**：每批最多 `batch_size` 个**不同 LSN**（1–500），重复投递不占位点但随所在批次一起去重落账。
+- **安全位点（safe_lsn）**：等于流的 `watermark_lsn`，只在某一批 `MergeRun` 成功落账后推进；批次失败/中断时原地不动。
+- **空洞停车**：规划只取安全位点之后的 LSN 连续前缀，第一个未到达 LSN 记为 `gap_lsn`；前缀能填满本批就先跑、下一轮再探到队首阻塞，前缀为空（下一位点即空洞）时会话转 `blocked`，停在空洞之前。补洞接口幂等，补齐后自动续追。
+- **失败续跑**：批次失败 → 会话 `failed`、安全位点不动；续跑从确认位点重新规划同一窗口（失败批次保留历史，新批次重跑），因此**重复执行不新增、也不跳过任何未处理事件**。有在飞批次时发起/续跑是幂等 no-op。
+- **可暂停**：在飞期间请求暂停会置 `pause_requested`，当前批次确认后停在安全点（`paused`），不会越过确认位点。
+- 状态机 `active / idle / blocked / paused / completed / failed`，每条流至多一个未终结会话（部分唯一索引 `uq_catchup_open_per_stream`）；`last_recovery_json` 记录最近一次恢复结果供值班判断能否放心暂停。
 
 ### 算法 2：schema 兼容性判定 + 迁移 SQL 生成
 
@@ -96,7 +108,21 @@ cd worker && PYTHONPATH=/app:/app/backend celery -A worker_src.config.celery_app
 
 # 前端
 cd frontend && npm install && npm run dev   # /api 代理到 localhost:19220
+
+# 追赶相关后端测试（无需 PostgreSQL/Redis，SQLite + 替身 Celery）
+cd backend && pip install -r requirements.txt && python -m pytest tests/ -q
 ```
+
+### 连续增量追赶接口（`/api/catchup`，权限 `catchup:read` / `catchup:trigger`）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/catchup/sessions` | 发起追赶（`stream_id` + `batch_size`），重复发起幂等返回同一会话 |
+| GET | `/catchup/sessions` / `/{id}` | 会话列表 / 详情（含当前批次、剩余积压、安全位点、最近恢复结果） |
+| GET | `/catchup/streams/{stream_id}/session` | 查某条流当前未终结会话 |
+| POST | `/catchup/sessions/{id}/resume` | 从最后确认位置续跑（失败/暂停/空闲态） |
+| POST | `/catchup/sessions/{id}/pause` | 当前批次确认后停在安全点 |
+| POST | `/catchup/sessions/{id}/fill-gap` | 幂等补齐空洞位点事件，补齐后自动继续 |
 
 ## 6. 技术栈
 
@@ -117,12 +143,14 @@ gb-547/
 ├── backend/
 │   ├── scripts/seed_demo.py        # 幂等 seed + SEED_SUMMARY
 │   ├── src/{config,constants,models,schemas,middlewares,utils,services,controllers,routes,migrations}
+│   ├── tests/                      # catchup 规划器/编排/HTTP/不变量测试（pytest，SQLite 替身）
 │   └── Dockerfile / entrypoint.sh / alembic.ini / requirements.txt
 ├── worker/
-│   ├── src/{config,tasks,core}      # merge_task / heartbeat_task
+│   ├── src/{config,tasks,core}      # merge_task（含 catchup 批次回调）/ heartbeat_task
 │   └── Dockerfile / healthcheck.sh
 └── frontend/
     ├── src/{api,stores,types,components,hooks,pages,router,utils,constants,styles}
+    │   # pages/Catchup.tsx = 连续增量追赶值班页
     └── Dockerfile / nginx.conf
 ```
 
@@ -146,6 +174,7 @@ gb-547/
 | Role (`admin/engineer/viewer`) | `backend/src/constants/roles.py` | `frontend/src/constants/roles.ts`、`frontend/src/types/models.ts` |
 | CdcOp (`insert/update/delete`) + 中文名 | `backend/src/constants/enums.py` | `frontend/src/constants/cdc.ts` |
 | StreamStatus / RunStatus | `backend/src/constants/enums.py` | `frontend/src/constants/cdc.ts` |
+| CatchupStatus（追赶会话 6 态） | `backend/src/constants/enums.py` | `frontend/src/constants/cdc.ts#CATCHUP_STATUS` |
 | RejectReason / RejectStatus | `backend/src/constants/enums.py` | `frontend/src/constants/cdc.ts` |
 | ChangeKind（10 类） | `backend/src/constants/enums.py` | `frontend/src/constants/cdc.ts`、`frontend/src/constants/cdc.ts#CHANGE_KIND_TONE` |
 | CompatLevel (`full/backward/forward/breaking`) | `backend/src/constants/enums.py` | `frontend/src/constants/cdc.ts` |

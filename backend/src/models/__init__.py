@@ -1,6 +1,7 @@
 """cdc schema 下的平台表模型。"""
 from src.models.audit_log import AuditLog
 from src.models.base import Base, metadata_obj, utcnow
+from src.models.catchup_session import CatchupSession
 from src.models.cdc_event import CdcEvent
 from src.models.change_stream import ChangeStream
 from src.models.merge_run import MergeRun
@@ -12,6 +13,7 @@ from src.models.user import User
 __all__ = [
     "AuditLog",
     "Base",
+    "CatchupSession",
     "CdcEvent",
     "ChangeStream",
     "MergeRun",

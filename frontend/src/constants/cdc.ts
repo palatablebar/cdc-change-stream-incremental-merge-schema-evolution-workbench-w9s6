@@ -1,5 +1,5 @@
 /** 前端枚举第二份：与 backend/src/constants/enums.py 一一对应（README 有对照表）。 */
-import type { CdcOp, CompatLevel, RejectReason, RejectStatus, Role, RunStatus, StreamStatus } from '../types/models';
+import type { CdcOp, CatchupStatus, CompatLevel, RejectReason, RejectStatus, Role, RunStatus, StreamStatus } from '../types/models';
 
 export const STREAM_STATUS: Record<StreamStatus, { label: string; tone: 'ok' | 'warn' | 'muted' | 'danger' }> = {
   healthy: { label: '正常', tone: 'ok' },
@@ -14,6 +14,31 @@ export const RUN_STATUS: Record<RunStatus, { label: string; tone: 'ok' | 'amber'
   succeeded: { label: '成功', tone: 'ok' },
   failed: { label: '失败', tone: 'danger' },
   canceled: { label: '已取消', tone: 'muted' },
+};
+
+export const CATCHUP_STATUS: Record<CatchupStatus, { label: string; tone: 'ok' | 'amber' | 'danger' | 'muted'; running?: boolean }> = {
+  active: { label: '追赶中', tone: 'amber', running: true },
+  idle: { label: '待续跑', tone: 'muted' },
+  blocked: { label: '空洞阻塞', tone: 'danger' },
+  paused: { label: '已暂停', tone: 'muted' },
+  completed: { label: '已追平', tone: 'ok' },
+  failed: { label: '批次失败', tone: 'danger' },
+};
+
+/** 最近一次恢复结果 kind → 中文文案，告诉值班同学系统刚刚做了什么。 */
+export const CATCHUP_RECOVERY_KIND: Record<string, string> = {
+  start: '发起追赶',
+  resume: '手动续跑',
+  auto_continue: '批次确认后自动续批',
+  batch_succeeded: '批次成功，已推进安全位点',
+  batch_failed: '批次失败，停在最后确认位置',
+  dispatch_failed: '批次投递失败，等待续跑',
+  blocked: '遇到位点空洞，停在空洞之前',
+  gap_filled: '空洞已补齐，自动继续',
+  pause: '已暂停',
+  pause_requested: '已请求暂停，当前批次跑完后停在安全点',
+  paused_at_safe_point: '批次确认后按暂停意图停在安全点',
+  completed: '已追到最新位点',
 };
 
 export const CDC_OP: Record<CdcOp, { label: string; tone: 'ok' | 'amber' | 'danger' }> = {

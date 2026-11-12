@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -30,20 +31,12 @@ def create_run(
     window_end_lsn: int | None,
     triggered_by: str | None,
 ) -> MergeRun:
-    stream = db.get(ChangeStream, stream_id)
-    if stream is None:
-        raise not_found("ChangeStream", stream_id)
+    """手动发起一个窗口归并（含全部前置校验与互斥检查）。"""
+    stream = _load_stream(db, stream_id)
     if stream.status == StreamStatus.PAUSED.value:
         raise AppError(codes.STREAM_PAUSED, "变更流已暂停，不能发起归并", f"stream={stream.name}")
 
-    active = (
-        db.query(MergeRun)
-        .filter(
-            MergeRun.stream_id == stream.id,
-            MergeRun.status.in_([RunStatus.QUEUED.value, RunStatus.RUNNING.value]),
-        )
-        .one_or_none()
-    )
+    active = _find_active_run(db, stream.id)
     if active is not None:
         raise AppError(
             codes.RUN_ALREADY_ACTIVE,
@@ -52,6 +45,29 @@ def create_run(
         )
 
     window = normalize_window(window_start_lsn, window_end_lsn, int(stream.watermark_lsn), int(stream.max_lsn))
+    return create_batch_run(
+        db,
+        stream=stream,
+        window=window,
+        triggered_by=triggered_by,
+        catchup_session_id=None,
+        validate_window=True,
+    )
+
+
+def create_batch_run(
+    db: Session,
+    stream: ChangeStream,
+    window: LsnWindow,
+    triggered_by: str | None,
+    catchup_session_id: UUID | str | None,
+    validate_window: bool,
+) -> MergeRun:
+    """建一条批次 MergeRun 并投递 Celery；手动运行与追赶会话共用这一条落库路径。
+
+    validate_window=False 时跳过空窗口/超上限校验（追赶批次已由规划器保证窗口合法），
+    但窗口大小关系仍然校验，避免出现反向区间。
+    """
     if window.end < window.start:
         raise AppError(
             codes.WATERMARK_INVALID,
@@ -69,23 +85,25 @@ def create_run(
         .scalar()
         or 0
     )
-    if event_count == 0:
-        raise AppError(
-            codes.WINDOW_EMPTY,
-            "窗口内没有事件，无法归并",
-            f"window=[{window.start},{window.end}]",
-        )
-    if event_count > MAX_WINDOW_EVENTS:
-        raise AppError(
-            codes.WINDOW_TOO_LARGE,
-            "窗口事件数超出上限，请缩小 LSN 区间",
-            f"count={event_count} max={MAX_WINDOW_EVENTS}",
-        )
+    if validate_window:
+        if event_count == 0:
+            raise AppError(
+                codes.WINDOW_EMPTY,
+                "窗口内没有事件，无法归并",
+                f"window=[{window.start},{window.end}]",
+            )
+        if event_count > MAX_WINDOW_EVENTS:
+            raise AppError(
+                codes.WINDOW_TOO_LARGE,
+                "窗口事件数超出上限，请缩小 LSN 区间",
+                f"count={event_count} max={MAX_WINDOW_EVENTS}",
+            )
 
     target = _match_target(db, stream)
     run = MergeRun(
         stream_id=stream.id,
         target_id=target.id if target else None,
+        catchup_session_id=catchup_session_id,
         window_start_lsn=window.start,
         window_end_lsn=window.end,
         status=RunStatus.QUEUED.value,
@@ -110,6 +128,24 @@ def create_run(
         logger.warning("enqueue failed run=%s error=%s", run.id, exc)
 
     return run
+
+
+def _load_stream(db: Session, stream_id: str) -> ChangeStream:
+    stream = db.get(ChangeStream, stream_id)
+    if stream is None:
+        raise not_found("ChangeStream", stream_id)
+    return stream
+
+
+def _find_active_run(db: Session, stream_id: UUID) -> MergeRun | None:
+    return (
+        db.query(MergeRun)
+        .filter(
+            MergeRun.stream_id == stream_id,
+            MergeRun.status.in_([RunStatus.QUEUED.value, RunStatus.RUNNING.value]),
+        )
+        .one_or_none()
+    )
 
 
 def _match_target(db: Session, stream: ChangeStream) -> MergeTarget | None:
@@ -144,8 +180,6 @@ def run_detail(db: Session, run_id: str) -> dict[str, Any]:
 
 
 def _serialize(db: Session, run: MergeRun, names: dict[str, str]) -> dict[str, Any]:
-    from src.schemas.run import serialize_run
-
     idempotent = None
     if run.status == RunStatus.SUCCEEDED.value and run.result_digest:
         twin = (

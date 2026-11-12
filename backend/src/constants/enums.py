@@ -35,6 +35,40 @@ class RunStatus(str, Enum):
         return {cls.SUCCEEDED.value, cls.FAILED.value, cls.CANCELED.value}
 
 
+class CatchupStatus(str, Enum):
+    """连续增量追赶会话状态。
+
+    active   = 有批次在排队/归并中（链上自动推进）
+    idle     = 上一批已确认落账，等待手动/重试投下一批（可放心暂停的安全点）
+    blocked  = 水位线紧邻位置出现 LSN 空洞，停在空洞之前，等补齐
+    paused   = 值班同学主动暂停（当前批次跑完后不再自动续）
+    completed= 已追到最新位点，无剩余积压
+    failed   = 最近一批失败且未恢复（确认位点未动，可一键续跑）
+    """
+
+    ACTIVE = "active"
+    IDLE = "idle"
+    BLOCKED = "blocked"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+    @classmethod
+    def terminal(cls) -> set[str]:
+        return {cls.COMPLETED.value}
+
+    @classmethod
+    def open_values(cls) -> set[str]:
+        """尚未终结、仍可继续推进的状态。"""
+        return {
+            cls.ACTIVE.value,
+            cls.IDLE.value,
+            cls.BLOCKED.value,
+            cls.PAUSED.value,
+            cls.FAILED.value,
+        }
+
+
 class RejectReason(str, Enum):
     """拒绝事件原因枚举，决定重放修复策略。"""
 
@@ -102,6 +136,14 @@ ENUM_LABELS: dict[str, dict[str, str]] = {
         "succeeded": "成功",
         "failed": "失败",
         "canceled": "已取消",
+    },
+    "CatchupStatus": {
+        "active": "追赶中",
+        "idle": "待续跑",
+        "blocked": "空洞阻塞",
+        "paused": "已暂停",
+        "completed": "已追平",
+        "failed": "批次失败",
     },
     "RejectReason": {
         "schema_mismatch": "schema 不匹配",

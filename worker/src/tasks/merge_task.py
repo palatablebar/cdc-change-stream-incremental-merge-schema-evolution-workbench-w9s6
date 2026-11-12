@@ -18,6 +18,7 @@ from src.models.change_stream import ChangeStream
 from src.models.merge_run import MergeRun
 from src.models.merge_target import MergeTarget
 from src.models.rejected_event import RejectedEvent
+from src.services import catchup_service
 from src.services.merge_engine import compute_merge
 from src.utils.logger import get_logger
 from src.utils.redis_client import get_redis
@@ -177,6 +178,10 @@ def merge_run_task(self, run_id: str) -> dict[str, Any]:
             stream.status = "healthy" if int(stream.max_lsn) <= int(stream.watermark_lsn) else stream.status
             db.commit()
 
+            # 连续追赶会话回调：确认位点已推进，自动投下一批（遇空洞/追平则停）
+            if run.catchup_session_id is not None:
+                catchup_service.handle_batch_finished(db, run)
+
             _progress(run_id, "done", counts)
             logger.info(
                 "merge done run=%s stream=%s processed=%s duplicate=%s rejected=%s upserted=%s idempotent=%s",
@@ -204,6 +209,9 @@ def merge_run_task(self, run_id: str) -> dict[str, Any]:
                 run.finished_at = datetime.now(timezone.utc)
                 run.duration_ms = max(1, int((time.perf_counter() - started) * 1000))
                 db.commit()
+                # 追赶批次失败：安全位点不动，会话转 failed 等待续跑
+                if run.catchup_session_id is not None:
+                    catchup_service.handle_batch_finished(db, run)
             _progress(run_id, "failed", {"error": str(exc)[:200]})
             logger.error("merge failed run=%s error=%s", run_id, exc, exc_info=True)
             return {"run_id": run_id, "status": "failed", "error": str(exc)}

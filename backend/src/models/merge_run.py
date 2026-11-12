@@ -5,7 +5,8 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import BigInteger, DateTime, Integer, String
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from src.models.types import GUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.config.settings import settings
@@ -18,13 +19,15 @@ class MergeRun(Base):
     __tablename__ = "merge_runs"
     __table_args__ = {"schema": settings.cdc_schema}
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    stream_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
-    target_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    stream_id: Mapped[uuid.UUID] = mapped_column(GUID, nullable=False, index=True)
+    target_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    # 归属追赶会话：手动发起的窗口归并为 None；连续追赶产生的批次带上会话 id
+    catchup_session_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True, index=True)
     window_start_lsn: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
     window_end_lsn: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", index=True)
-    triggered_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    triggered_by: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
     received_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     processed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     duplicate_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

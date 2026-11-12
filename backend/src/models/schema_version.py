@@ -5,7 +5,8 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import DateTime, String
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from src.models.types import GUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.config.settings import settings
@@ -18,8 +19,8 @@ class SchemaVersion(Base):
     __tablename__ = "schema_versions"
     __table_args__ = {"schema": settings.cdc_schema}
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    stream_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    stream_id: Mapped[uuid.UUID] = mapped_column(GUID, nullable=False, index=True)
     version_label: Mapped[str] = mapped_column(String(40), nullable=False)
     fields_json: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     ddl_summary: Mapped[str] = mapped_column(String(2000), nullable=False, default="")

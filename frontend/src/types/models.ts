@@ -6,6 +6,8 @@ export type Permission =
   | 'events:read'
   | 'runs:read'
   | 'runs:trigger'
+  | 'catchup:read'
+  | 'catchup:trigger'
   | 'rejected:read'
   | 'rejected:replay'
   | 'schema:read'
@@ -25,6 +27,7 @@ export interface User {
 export type CdcOp = 'insert' | 'update' | 'delete';
 export type StreamStatus = 'healthy' | 'lagging' | 'paused' | 'error';
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
+export type CatchupStatus = 'active' | 'idle' | 'blocked' | 'paused' | 'completed' | 'failed';
 export type CompatLevel = 'full' | 'backward' | 'forward' | 'breaking';
 export type RejectReason = 'schema_mismatch' | 'pk_missing' | 'parse_error' | 'type_conflict';
 export type RejectStatus = 'pending' | 'replayed' | 'dismissed';
@@ -165,6 +168,7 @@ export interface MergeRun {
   id: string;
   stream_id: string;
   stream_name: string | null;
+  catchup_session_id: string | null;
   window_start_lsn: number;
   window_end_lsn: number;
   window_display: string;
@@ -278,4 +282,54 @@ export interface AuditLog {
   ip: string | null;
   trace_id: string | null;
   created_at: string | null;
+}
+
+export interface CatchupRecovery {
+  kind: string;
+  at: string;
+  safe_lsn: number;
+  detail: Record<string, unknown>;
+}
+
+export interface CatchupCurrentRun {
+  id: string;
+  status: RunStatus;
+  window_start_lsn: number;
+  window_end_lsn: number;
+  batch_no: number;
+  received_count: number;
+}
+
+export interface CatchupSession {
+  id: string;
+  stream_id: string;
+  stream_name: string | null;
+  status: CatchupStatus;
+  status_label: string;
+  batch_size: number;
+  safe_lsn: number;
+  safe_lsn_display: string;
+  max_lsn: number;
+  max_lsn_display: string;
+  gap_lsn: number | null;
+  gap_lsn_display: string | null;
+  backlog_events: number;
+  total_batches: number;
+  succeeded_batches: number;
+  failed_batches: number;
+  current_batch_no: number;
+  current_run: CatchupCurrentRun | null;
+  pause_requested: boolean;
+  last_run_id: string | null;
+  last_recovery: CatchupRecovery | null;
+  last_error: string | null;
+  started_at: string | null;
+  last_progress_at: string | null;
+  finished_at: string | null;
+  created_at: string | null;
+}
+
+export interface StreamCatchup {
+  open: boolean;
+  session: CatchupSession | null;
 }
